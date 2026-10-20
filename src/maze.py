@@ -1,6 +1,11 @@
 import turtle
 import random
 
+FLOOR_COLOR = '#f4f1ea'
+WALL_COLOR = '#2b2d42'
+START_COLOR = '#06d6a0'
+EXIT_COLOR = '#ffd166'
+
 class Maze:
     def __init__(self, height=30, width=24):
         self.cols = width
@@ -13,11 +18,15 @@ class Maze:
     def generate_maze(self):
         self.screen.title('The Maze')
         self.screen.setup(width=self.width, height=self.height) # width of 24, height of 30
-        self.screen.bgcolor('white')
 
         self.grid = self.build_grid()
+        self.draw_maze()
+
+    def draw_maze(self):
+        """Draw the current grid without generating a new one."""
         CELL_SIZE = 30
 
+        self.screen.bgcolor(FLOOR_COLOR) # open cells are just the background showing through
         self.screen.tracer(0) # stop redrawing after every pen move
         self.pen.hideturtle()
         for i, row in enumerate(self.grid):
@@ -25,9 +34,9 @@ class Maze:
                 x = -(self.cols * CELL_SIZE) / 2 + (CELL_SIZE * j)
                 y = (self.rows * CELL_SIZE) / 2 - (CELL_SIZE * i)
                 if cell == 1:
-                    self.fill_cell(x, y, CELL_SIZE, 'red')
+                    self.fill_cell(x, y, CELL_SIZE, WALL_COLOR)
                 elif cell == 2:
-                    self.fill_cell(x, y, CELL_SIZE, 'green')
+                    self.fill_cell(x, y, CELL_SIZE, START_COLOR if i == 0 else EXIT_COLOR)
         self.screen.update() # draw the whole maze in one go
 
 
@@ -37,7 +46,7 @@ class Maze:
         self.pen.goto(x, y)
         self.pen.setheading(0)
         self.pen.pendown()
-        self.pen.fillcolor(color)
+        self.pen.color(color) # outline matches the fill, so no black grid lines
         self.pen.begin_fill()
         for _ in range(4):
             self.pen.forward(size)

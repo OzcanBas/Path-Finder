@@ -225,7 +225,7 @@ class Robot:
         return None
 
     def neighbors(self, cell):
-        """Open cells next to `cell` (not walls, not off the grid)."""
+        """Get list of open cells next to `cell` (not walls, not off the grid)."""
         r, c = cell
         for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
             nr, nc = r+dr, c+dc

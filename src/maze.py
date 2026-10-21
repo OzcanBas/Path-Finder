@@ -6,47 +6,69 @@ WALL_COLOR = '#2b2d42'
 START_COLOR = '#06d6a0'
 EXIT_COLOR = '#ffd166'
 
+MIN_SIZE, MAX_SIZE = 5, 60   # allowed number of rows/cols
+MIN_CELL, MAX_CELL = 8, 40   # cell size in pixels is picked between these to fit the screen
+MARGIN = 40                  # space around the maze inside the window
+CONTROLS_HEIGHT = 80         # room for the button bar and status line under the canvas
+
 class Maze:
-    def __init__(self, height=30, width=24):
-        self.cols = width
-        self.rows = height
-        self.width = width*40
-        self.height = height*35
+    def __init__(self, rows=30, cols=24):
         self.pen = turtle.Turtle()
         self.screen = turtle.Screen()
+        self.set_size(rows, cols)
+
+    def set_size(self, rows, cols):
+        """Change the maze dimensions and pick the biggest cell size that still fits on screen."""
+        self.rows = max(MIN_SIZE, min(MAX_SIZE, rows))
+        self.cols = max(MIN_SIZE, min(MAX_SIZE, cols))
+
+        root = self.screen.getcanvas().winfo_toplevel()
+        max_width = root.winfo_screenwidth() * 0.9 - MARGIN
+        max_height = root.winfo_screenheight() * 0.85 - MARGIN - CONTROLS_HEIGHT
+        cell = int(min(max_width / self.cols, max_height / self.rows))
+        self.cell_size = max(MIN_CELL, min(MAX_CELL, cell))
+
+        self.width = self.cols * self.cell_size + MARGIN
+        self.height = self.rows * self.cell_size + MARGIN + CONTROLS_HEIGHT
+
+    def cell_top_left(self, r, c):
+        """Screen position of the top left corner of grid cell (r, c)."""
+        return (-(self.cols * self.cell_size) // 2 + self.cell_size * c,
+                (self.rows * self.cell_size) // 2 - self.cell_size * r)
+
+    def cell_center(self, r, c):
+        x, y = self.cell_top_left(r, c)
+        return x + self.cell_size / 2, y - self.cell_size / 2
 
     def generate_maze(self):
         self.screen.title('The Maze')
-        self.screen.setup(width=self.width, height=self.height) # width of 24, height of 30
+        self.screen.setup(width=self.width, height=self.height) # screen window size
 
         self.grid = self.build_grid()
         self.draw_maze()
 
     def draw_maze(self):
         """Draw the current grid without generating a new one."""
-        CELL_SIZE = 30
-
-        self.screen.bgcolor(FLOOR_COLOR) # open cells are just the background showing through
-        self.screen.tracer(0) # stop redrawing after every pen move
+        self.screen.bgcolor(FLOOR_COLOR)
+        self.screen.tracer(0)
         self.pen.hideturtle()
         for i, row in enumerate(self.grid):
             for j, cell in enumerate(row):
-                x = -(self.cols * CELL_SIZE) / 2 + (CELL_SIZE * j)
-                y = (self.rows * CELL_SIZE) / 2 - (CELL_SIZE * i)
+                x, y = self.cell_top_left(i, j)
                 if cell == 1:
-                    self.fill_cell(x, y, CELL_SIZE, WALL_COLOR)
+                    self.fill_cell(x, y, self.cell_size, WALL_COLOR)
                 elif cell == 2:
-                    self.fill_cell(x, y, CELL_SIZE, START_COLOR if i == 0 else EXIT_COLOR)
+                    self.fill_cell(x, y, self.cell_size, START_COLOR if i == 0 else EXIT_COLOR)
         self.screen.update() # draw the whole maze in one go
 
 
     def fill_cell(self, x, y, size, color):
-        """Fill a single grid cell at position (x, y) with given color."""
+        """Fill a single grid cell at position top_left=(x, y) with given color. This is a helper function."""
         self.pen.penup()
         self.pen.goto(x, y)
         self.pen.setheading(0)
         self.pen.pendown()
-        self.pen.color(color) # outline matches the fill, so no black grid lines
+        self.pen.color(color)
         self.pen.begin_fill()
         for _ in range(4):
             self.pen.forward(size)
@@ -55,6 +77,7 @@ class Maze:
         self.pen.up()
 
     def build_grid(self):
+        """This function generates the actual maze/grid as a 2D array."""
         # 0 = path, 1 = wall, 2 = entrance/exit
         grid = [[1] * self.cols for _ in range(self.rows)]
         for r in range(1, self.rows - 1):
@@ -97,7 +120,3 @@ class Maze:
         grid[0][1] = 2
         grid[self.rows - 1][self.cols - 2] = 2
         return grid
-
-
-
-    

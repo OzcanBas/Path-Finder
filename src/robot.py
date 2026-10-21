@@ -1,7 +1,8 @@
+import math
 import turtle
 import tkinter as tk
+from collections import deque
 
-CELL_SIZE = 30
 STEP_FRAMES = 6   # frames it takes a robot to glide from one cell to the next
 FRAME_MS = 16     # delay between frames (~60fps)
 
@@ -11,7 +12,7 @@ ROBOT_COLORS = ['#4361ee', '#f77f00', '#2a9d8f', '#7209b7', '#e63946', '#3a86ff'
 DEAD_END_COLOR = '#dcd7cc'
 PATH_COLOR = '#ff006e'
 
-_robot_images = {} # colour -> tinted PhotoImage, built once and reused across runs
+_robot_images = {} # (colour, subsample) -> tinted PhotoImage, built once and reused across runs
 
 
 def lighten(color, amount=0.6):
@@ -20,13 +21,19 @@ def lighten(color, amount=0.6):
     return '#%02x%02x%02x' % tuple(round(v + (255 - v) * amount) for v in (r, g, b))
 
 
-def robot_shape(screen, color):
-    """Register (once) a copy of robot.png recoloured to `color` and return its shape name."""
-    name = f'robot{color}'
-    if color not in _robot_images:
-        if 'base' not in _robot_images:
-            _robot_images['base'] = tk.PhotoImage(file='robot.png').subsample(48) # ~26px, fits in a cell
-        base = _robot_images['base']
+def robot_shape(screen, color, cell_size):
+    """Register (once) a copy of robot.png recoloured to `color` and sized to fit a cell; return its shape name."""
+    if 'full' not in _robot_images:
+        _robot_images['full'] = tk.PhotoImage(file='robot.png')
+    full = _robot_images['full']
+    # PhotoImage can only shrink by whole numbers, so pick the factor that gets closest to ~85% of a cell
+    factor = max(1, math.ceil(full.width() / (cell_size * 0.85)))
+
+    name = f'robot{color}x{factor}'
+    if (color, factor) not in _robot_images:
+        if ('base', factor) not in _robot_images:
+            _robot_images[('base', factor)] = full.subsample(factor)
+        base = _robot_images[('base', factor)]
         cr, cg, cb = (int(color[i:i+2], 16) for i in (1, 3, 5))
 
         image = tk.PhotoImage(width=base.width(), height=base.height())
@@ -38,39 +45,37 @@ def robot_shape(screen, color):
                 light = sum(base.get(x, y)) / 765
                 pixel = tuple(round(v * (1 - light) + 255 * light) for v in (cr, cg, cb))
                 image.put('#%02x%02x%02x' % pixel, (x, y))
-        _robot_images[color] = image
+        _robot_images[(color, factor)] = image
 
-    screen.register_shape(name, turtle.Shape('image', _robot_images[color]))
+    screen.register_shape(name, turtle.Shape('image', _robot_images[(color, factor)]))
     return name
 
 
 class Robot:
-    def __init__(self, maze):
+    def __init__(self, maze, on_status=lambda text: None):
         # share the same grid and screen from the maze class with the robot class
         self.grid = maze.grid
         self.rows = len(maze.grid)
         self.cols = len(maze.grid[0])
         self.screen = maze.screen
         self.maze = maze
+        self.on_status = on_status # called with a line of text to show under the maze
 
     def solve_maze(self, algorithm):
         # algorithm is the name of a solver method: 'dfs' or 'bfs'
         return getattr(self, algorithm)()
 
     def center(self, cell):
-        r, c = cell
-        return (-CELL_SIZE*self.cols//2 + CELL_SIZE*c + CELL_SIZE//2,
-                CELL_SIZE*self.rows//2 - CELL_SIZE*r - CELL_SIZE//2)
+        return self.maze.cell_center(*cell)
 
     def fill(self, cell, color):
-        r, c = cell
-        self.maze.fill_cell(-CELL_SIZE*self.cols//2 + CELL_SIZE*c,
-                            CELL_SIZE*self.rows//2 - CELL_SIZE*r, CELL_SIZE, color)
+        x, y = self.maze.cell_top_left(*cell)
+        self.maze.fill_cell(x, y, self.maze.cell_size, color)
 
     def new_robot(self, color, cell):
         robot = turtle.Turtle()
         robot.hideturtle()
-        robot.shape(robot_shape(self.screen, color))
+        robot.shape(robot_shape(self.screen, color, self.maze.cell_size))
         robot.penup()
         robot.speed(0)  # no built-in animation; glide() moves it frame by frame
         robot.goto(self.center(cell))
@@ -102,7 +107,7 @@ class Robot:
         pen = turtle.Turtle()
         pen.hideturtle()
         pen.penup()
-        pen.pensize(6)
+        pen.pensize(max(2, self.maze.cell_size // 5))
         pen.pencolor(PATH_COLOR)
         pen.goto(self.center(path[0]))
         pen.pendown()
@@ -219,10 +224,78 @@ class Robot:
 
         return None
 
-    def run_solver(self, algorithm='dfs'):
-        self.cancelled = False
-        steps = self.solve_maze(algorithm)
+    def neighbors(self, cell):
+        """Open cells next to `cell` (not walls, not off the grid)."""
+        r, c = cell
+        for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
+            nr, nc = r+dr, c+dc
+            if 0 <= nr < self.rows and 0 <= nc < self.cols and self.grid[nr][nc] != 1:
+                yield (nr, nc)
 
+    def shortest_path_length(self):
+        """Fewest moves from entrance to exit; plain bfs with no drawing, to score a manual solve."""
+        start, goal = (0,1), (self.rows - 1, self.cols - 2)
+        distance = {start: 0}
+        queue = deque([start])
+        while queue:
+            cell = queue.popleft()
+            if cell == goal:
+                return distance[cell]
+            for nxt in self.neighbors(cell):
+                if nxt not in distance:
+                    distance[nxt] = distance[cell] + 1
+                    queue.append(nxt)
+        return None
+
+    def manual(self):
+        """Let the player steer the robot with the arrow keys or WASD."""
+        start, goal = (0,1), (self.rows - 1, self.cols - 2)
+        color = ROBOT_COLORS[0]
+        robot = self.new_robot(color, start)
+        path = [start] # the player's route so far, with detours cut out
+        state = {'moving': False, 'moves': 0, 'done': False}
+
+        def move(dr, dc):
+            # ignore key presses while the robot is still gliding, so holding a key moves one cell at a time
+            if self.cancelled or state['moving'] or state['done']:
+                return
+            here = path[-1]
+            there = (here[0] + dr, here[1] + dc)
+            if there not in self.neighbors(here):
+                return # wall or edge of the grid
+
+            state['moving'] = True
+            state['moves'] += 1
+            if there in path:
+                # walked back onto the route: everything after that cell was a detour
+                i = path.index(there)
+                for cell in path[i+1:]:
+                    self.fill(cell, DEAD_END_COLOR)
+                del path[i+1:]
+            else:
+                path.append(there)
+                self.fill(there, lighten(color))
+            self.on_status(f"Moves: {state['moves']}")
+
+            def arrived():
+                state['moving'] = False
+                if there == goal:
+                    state['done'] = True
+                    self.on_status(f"Solved in {state['moves']} moves! "
+                                   f"Shortest possible: {self.shortest_path_length()}")
+                    self.animate(self.draw_path(path))
+
+            self.animate(self.glide([(robot, here, there)]), on_done=arrived)
+
+        for keys, (dr, dc) in [(('Up', 'w'), (-1, 0)), (('Down', 's'), (1, 0)),
+                               (('Left', 'a'), (0, -1)), (('Right', 'd'), (0, 1))]:
+            for key in keys:
+                self.screen.onkeypress(lambda dr=dr, dc=dc: move(dr, dc), key)
+        self.screen.listen() # give the canvas keyboard focus
+        self.on_status('Use the arrow keys or WASD to reach the yellow exit')
+
+    def animate(self, steps, on_done=None):
+        """Run a generator one frame at a time, then call on_done once it finishes."""
         def tick():
             if self.cancelled:
                 return
@@ -230,6 +303,15 @@ class Robot:
                 next(steps)
                 self.screen.ontimer(tick, FRAME_MS)
             except StopIteration:
-                pass
+                if on_done:
+                    on_done()
 
         tick()
+
+    def run_solver(self, algorithm='dfs'):
+        self.cancelled = False
+        if algorithm == 'manual':
+            self.manual()
+        else:
+            self.on_status(f'Solving with {algorithm.upper()}')
+            self.animate(self.solve_maze(algorithm))

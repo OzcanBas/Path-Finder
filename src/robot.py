@@ -1,4 +1,5 @@
 import math
+import os
 import turtle
 import tkinter as tk
 from collections import deque
@@ -12,6 +13,9 @@ ROBOT_COLORS = ['#4361ee', '#f77f00', '#2a9d8f', '#7209b7', '#e63946', '#3a86ff'
 DEAD_END_COLOR = '#dcd7cc'
 PATH_COLOR = '#ff006e'
 
+# relative to this file rather than the working directory, so the app runs from any folder
+ROBOT_IMAGE = os.path.join(os.path.dirname(__file__), '..', 'images', 'robot.png')
+
 _robot_images = {} # (colour, subsample) -> tinted PhotoImage, built once and reused across runs
 
 
@@ -24,7 +28,7 @@ def lighten(color, amount=0.6):
 def robot_shape(screen, color, cell_size):
     """Register (once) a copy of robot.png recoloured to `color` and sized to fit a cell; return its shape name."""
     if 'full' not in _robot_images:
-        _robot_images['full'] = tk.PhotoImage(file='robot.png')
+        _robot_images['full'] = tk.PhotoImage(file=ROBOT_IMAGE)
     full = _robot_images['full']
     # PhotoImage can only shrink by whole numbers, so pick the factor that gets closest to ~85% of a cell
     factor = max(1, math.ceil(full.width() / (cell_size * 0.85)))
